@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    Router,
     extract::{Form, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
-    Router,
 };
-use minijinja::{context, Environment};
+use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -229,12 +229,20 @@ mod tests {
     async fn index_returns_empty_bookmark_template() {
         let server_addr = spawn_server().await;
         let client = reqwest::Client::new();
-	let context: minijinja::Value = context! { bookmarks => Vec::<Bookmark>::new() };
-	let expected = build_templates().get_template("list.html").unwrap().render(context).unwrap();
- 
-	// GET /
-        let res = client.get(&format!("{server_addr}/bookmarks")).send().await.unwrap();
- 
+        let context: minijinja::Value = context! { bookmarks => Vec::<Bookmark>::new() };
+        let expected = build_templates()
+            .get_template("list.html")
+            .unwrap()
+            .render(context)
+            .unwrap();
+
+        // GET /
+        let res = client
+            .get(&format!("{server_addr}/bookmarks"))
+            .send()
+            .await
+            .unwrap();
+
         assert_eq!(res.status(), 200);
 
         let actual = res.text().await.unwrap();
@@ -250,20 +258,56 @@ mod tests {
             .build()
             .unwrap();
 
-	let mut bookmark = HashMap::new();
-	bookmark.insert("title", "The Rust Programming Language");
-	bookmark.insert("url", "https://doc.rust-lang.org/book");
-	bookmark.insert("tags", "rust,book");
- 
+        let mut bookmark = HashMap::new();
+        bookmark.insert("title", "The Rust Programming Language");
+        bookmark.insert("url", "https://doc.rust-lang.org/book");
+        bookmark.insert("tags", "rust,book");
+
         let res = client
             .post(format!("{server_addr}/bookmarks"))
             .header("content-type", "application/x-www-form-urlencoded")
-	    .form(&bookmark)
+            .form(&bookmark)
             .send()
             .await
             .unwrap();
- 
+
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         assert_eq!(res.headers().get("location").unwrap(), "/bookmarks/0");
+    }
+
+    #[tokio::test]
+    async fn create_bookmark_new_bookmark_page() {
+        let server_addr = spawn_server().await;
+        let client = reqwest::Client::builder().build().unwrap();
+
+        let bookmark = 
+                Bookmark { id: 0,
+                           title: "The Rust Programming Language".to_string(),
+                           url: "https://doc.rust-lang.org/book".to_string(),
+                           tags: vec!["rust".to_string(), "book".to_string()]
+                };
+
+        let mut bookmark_map = HashMap::new();
+        bookmark_map.insert("title", bookmark.title.clone());
+        bookmark_map.insert("url", bookmark.url.clone());
+        bookmark_map.insert("tags", bookmark.tags.join(","));
+
+        let context: minijinja::Value = context! { bookmark };
+        let expected = build_templates()
+            .get_template("detail.html")
+            .unwrap()
+            .render(context)
+            .unwrap();
+
+        let res = client
+            .post(format!("{server_addr}/bookmarks"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .form(&bookmark_map)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.text().await.unwrap(), expected);
     }
 }
