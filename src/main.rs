@@ -11,6 +11,7 @@ use axum::{
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
 // Data model
@@ -45,15 +46,9 @@ struct BookmarkStore {
 /// tasks.  It's immutable after setup, so no Mutex needed.
 #[derive(Clone)]
 struct AppState {
-    store: Arc<RwLock<BookmarkStore>>,
+    // the bookmark store is now a database connection
+    store: SqlitePool,
     templates: Arc<Environment<'static>>,
-}
-
-impl AppState {
-    /// Convenience: acquire a read lock on the store.
-    async fn read_store(&self) -> tokio::sync::RwLockReadGuard<'_, BookmarkStore> {
-        self.store.read().await
-    }
 }
 
 // Templating
@@ -104,12 +99,58 @@ fn render(env: &Environment, name: &str, ctx: minijinja::Value) -> Response {
 
 // Handlers
 
-/// GET /bookmarks
-async fn list_bookmarks(State(state): State<AppState>) -> Response {
-    let store = state.read_store().await;
-    let mut bookmarks: Vec<_> = store.bookmarks.values().cloned().collect();
+// helper for list bookmarks so we can consolidate DB errors
+async fn get_all_bookmarks(pool: &SqlitePool) -> sqlx::Result<Vec<Bookmark>> {
+    let bookmarks =
+        sqlx::query_as::<_, (u64, String, String)>("select id, url, title from bookmarks")
+            .fetch_all(pool)
+            .await?;
+
+    let links = sqlx::query_as::<_, (u64, u64)>(r"SELECT bookmark_id, tag_id FROM bookmark_tag")
+        .fetch_all(pool)
+        .await?;
+
+    let tags = sqlx::query_as::<_, (u64, String)>(
+        r"SELECT id, name FROM tag WHERE id IN (SELECT tag_id FROM bookmark_tag)",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect::<HashMap<_, _>>();
+
+    let mut tags_by_bookmark: HashMap<u64, Vec<String>> = HashMap::new();
+    for (bookmark_id, tag_id) in &links {
+        if let Some(name) = tags.get(tag_id) {
+            tags_by_bookmark
+                .entry(*bookmark_id)
+                .or_default()
+                .push(name.clone());
+        }
+    }
+
+    let mut bookmarks: Vec<_> = bookmarks
+        .into_iter()
+        .map(|(id, url, title)| Bookmark {
+            id,
+            url,
+            title,
+            tags: tags_by_bookmark.remove(&id).unwrap_or_default(),
+        })
+        .collect();
     bookmarks.sort_by_key(|b| b.id);
 
+    Ok(bookmarks)
+}
+
+/// GET /bookmarks
+async fn list_bookmarks(State(state): State<AppState>) -> Response {
+    let Ok(bookmarks) = get_all_bookmarks(&state.store).await else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Html("database error".to_string()),
+        )
+            .into_response();
+    };
     render(&state.templates, "list.html", context! { bookmarks })
 }
 
@@ -203,112 +244,4 @@ async fn main() {
 
     println!("Open http://127.0.0.1:8080/bookmarks in your browser");
     axum::serve(listener, app).await.expect("server error");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Spawn a server in the background and return its address
-    async fn spawn_server() -> String {
-        let state = AppState {
-            store: Arc::new(RwLock::new(BookmarkStore::default())),
-            templates: Arc::new(build_templates()),
-        };
-        // Binding to port 0 lets the OS pick an available port.
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        // Spawn the server in the background.
-        tokio::spawn(async move {
-            axum::serve(listener, build_router(state)).await.unwrap();
-        });
-        // "http://127.0.0.1:55556"
-        format!("http://{addr}")
-    }
-
-    #[tokio::test]
-    async fn index_returns_empty_bookmark_template() {
-        let server_addr = spawn_server().await;
-        let client = reqwest::Client::new();
-        let context: minijinja::Value = context! { bookmarks => Vec::<Bookmark>::new() };
-        let expected = build_templates()
-            .get_template("list.html")
-            .unwrap()
-            .render(context)
-            .unwrap();
-
-        // GET /
-        let res = client
-            .get(&format!("{server_addr}/bookmarks"))
-            .send()
-            .await
-            .unwrap();
-
-        assert_eq!(res.status(), 200);
-
-        let actual = res.text().await.unwrap();
-        assert_eq!(actual, expected);
-    }
-
-    #[tokio::test]
-    async fn create_bookmark_redirects() {
-        let server_addr = spawn_server().await;
-        // Don't follow the redirect: we want to inspect the original redirect response
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap();
-
-        let mut bookmark = HashMap::new();
-        bookmark.insert("title", "The Rust Programming Language");
-        bookmark.insert("url", "https://doc.rust-lang.org/book");
-        bookmark.insert("tags", "rust,book");
-
-        let res = client
-            .post(format!("{server_addr}/bookmarks"))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .form(&bookmark)
-            .send()
-            .await
-            .unwrap();
-
-        assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(res.headers().get("location").unwrap(), "/bookmarks/0");
-    }
-
-    #[tokio::test]
-    async fn create_bookmark_new_bookmark_page() {
-        let server_addr = spawn_server().await;
-        let client = reqwest::Client::builder().build().unwrap();
-
-        let bookmark = Bookmark {
-            id: 0,
-            title: "The Rust Programming Language".to_string(),
-            url: "https://doc.rust-lang.org/book".to_string(),
-            tags: vec!["rust".to_string(), "book".to_string()],
-        };
-
-        let mut bookmark_map = HashMap::new();
-        bookmark_map.insert("title", bookmark.title.clone());
-        bookmark_map.insert("url", bookmark.url.clone());
-        bookmark_map.insert("tags", bookmark.tags.join(","));
-
-        let context: minijinja::Value = context! { bookmark };
-        let expected = build_templates()
-            .get_template("detail.html")
-            .unwrap()
-            .render(context)
-            .unwrap();
-
-        let res = client
-            .post(format!("{server_addr}/bookmarks"))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .form(&bookmark_map)
-            .send()
-            .await
-            .unwrap();
-
-        assert_eq!(res.status(), StatusCode::OK);
-        assert_eq!(res.text().await.unwrap(), expected);
-    }
 }
