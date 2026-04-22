@@ -6,7 +6,7 @@ use axum::{
     extract::{Form, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{delete, get},
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
@@ -205,14 +205,17 @@ async fn create_bookmark_impl(
     tags: Vec<String>,
 ) -> sqlx::Result<i64> {
     // TODO: transactions
+    let mut trans = pool.begin().await?;
 
     let bookmark_id = sqlx::query_scalar::<_, i64>(
         r"INSERT INTO bookmark (url, title) VALUES (?, ?) RETURNING id",
     )
     .bind(url)
     .bind(title)
-    .fetch_one(pool)
+    .fetch_one(&mut *trans)
     .await?;
+
+    trans.commit().await?;
 
     // create the tags
     let placeholders = vec!["(?)"; tags.len()].join(", ");
@@ -257,6 +260,45 @@ async fn create_bookmark(
     Redirect::to(&format!("/bookmarks/{id}")).into_response()
 }
 
+async fn delete_bookmark_impl(pool: &SqlitePool, id: u64) -> sqlx::Result<i32> {
+    let mut trans = pool.begin().await?;
+
+    sqlx::query("DELETE FROM bookmark_tag WHERE bookmark_id = ?")
+        .bind(id as i64)
+        .execute(&mut *trans)
+        .await?;
+
+    let Some(_) = sqlx::query_scalar::<_, u64>("DELETE FROM bookmark WHERE id = ? RETURNING id")
+        .bind(id as i64)
+        .fetch_optional(&mut *trans)
+        .await?
+    else {
+        return Ok(0);
+    };
+
+    trans.commit().await?;
+
+    Ok(1)
+}
+
+/// DELETE /bookmarks/:id
+async fn delete_bookmark(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+    match get_bookmark_from_id(&state.store, id).await {
+        Err(_) => database_error(),
+        Ok(Some(bm)) => {
+            let Ok(_rows_affected) = delete_bookmark_impl(&state.store, bm.id).await else {
+                return database_error();
+            };
+            Redirect::to("/bookmarks").into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            render(&state.templates, "404.html", context! {}),
+        )
+            .into_response(),
+    }
+}
+
 fn build_router(state: AppState) -> Router {
     // Important: `/bookmarks/new` must be registered before `/bookmarks/:id`
     // so that "new" isn't interpreted as an id parameter.
@@ -264,6 +306,7 @@ fn build_router(state: AppState) -> Router {
         .route("/bookmarks", get(list_bookmarks).post(create_bookmark))
         .route("/bookmarks/new", get(new_bookmark_form))
         .route("/bookmarks/{id}", get(get_bookmark))
+        .route("/bookmarks/{id}", delete(delete_bookmark))
         .with_state(state)
 }
 
