@@ -6,7 +6,7 @@ use axum::{
     extract::{Form, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{delete, get},
+    routing::{get},
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
@@ -281,14 +281,15 @@ async fn delete_bookmark_impl(pool: &SqlitePool, id: u64) -> sqlx::Result<i32> {
     Ok(1)
 }
 
-/// DELETE /bookmarks/:id
+/// POST /bookmarks/:id
 async fn delete_bookmark(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
     match get_bookmark_from_id(&state.store, id).await {
         Err(_) => database_error(),
         Ok(Some(bm)) => {
-            let Ok(_rows_affected) = delete_bookmark_impl(&state.store, bm.id).await else {
+            let Ok(rows_affected) = delete_bookmark_impl(&state.store, bm.id).await else {
                 return database_error();
             };
+            println!("Deleted {} rows", rows_affected);
             Redirect::to("/bookmarks").into_response()
         }
         Ok(None) => (
@@ -305,8 +306,7 @@ fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/bookmarks", get(list_bookmarks).post(create_bookmark))
         .route("/bookmarks/new", get(new_bookmark_form))
-        .route("/bookmarks/{id}", get(get_bookmark))
-        .route("/bookmarks/{id}", delete(delete_bookmark))
+        .route("/bookmarks/{id}", get(get_bookmark).post(delete_bookmark))
         .with_state(state)
 }
 

@@ -7,4 +7,8 @@
     <dt>URL</dt>   <dd><a href="{{ bookmark.url }}">{{ bookmark.url }}</a></dd>
     <dt>Tags</dt>  <dd>{{ bookmark.tags | join(", ") if bookmark.tags else "-" }}</dd>
   </dl>
+  <form method="post" action="/bookmarks/{{ bookmark.id }}">
+    <button type="submit">Delete</button>
+  </form>
+
 {% endblock %}
