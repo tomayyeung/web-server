@@ -78,6 +78,9 @@ fn build_templates() -> Environment<'static> {
     env.add_template("new.html", include_str!("../templates/new.html"))
         .unwrap();
 
+    env.add_template("modify.html", include_str!("../templates/modify.html"))
+        .unwrap();
+
     env
 }
 

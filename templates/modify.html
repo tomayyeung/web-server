@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Modify bookmark{% endblock %}
+{% block content %}
+  <h1>Modify bookmark</h1>
+  <form method="post" action="/modify/{{ bookmark.id }}">
+    <p>
+      <label>
+        Title<br><input type="text" name="title" required placeholder="{{ bookmark.title }}" size="60">
+      </label>
+    </p>
+    <p>
+      <label>
+        URL<br><input type="url" name="url" required placeholder="{{ bookmark.url }}" size="60">
+      </label>
+    </p>
+    <p>
+      <label>
+        Tags (comma-separated)<br><input type="text" name="tags" placeholder="" size="60">
+      </label>
+    </p>
+    <p><button type="submit">Save</button></p>
+  </form>
+{% endblock %}
