@@ -300,6 +300,19 @@ async fn delete_bookmark(State(state): State<AppState>, Path(id): Path<u64>) -> 
     }
 }
 
+/// GET /modify/:id
+async fn modify_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+    match get_bookmark_from_id(&state.store, id).await {
+        Err(_) => database_error(),
+        Ok(Some(bm)) => render(&state.templates, "modify.html", context! { bookmark => bm }),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            render(&state.templates, "404.html", context! {}),
+        )
+            .into_response(),
+    }
+}
+
 async fn modify_bookmark_impl(
     pool: &SqlitePool,
     id: u64,
@@ -376,6 +389,7 @@ fn build_router(state: AppState) -> Router {
         .route("/bookmarks", get(list_bookmarks).post(create_bookmark))
         .route("/bookmarks/new", get(new_bookmark_form))
         .route("/bookmarks/{id}", get(get_bookmark).post(delete_bookmark))
+        .route("/modify/{id}", get(modify_page).post(modify_bookmark))
         .with_state(state)
 }
 
