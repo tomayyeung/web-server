@@ -207,7 +207,6 @@ async fn create_bookmark_impl(
     title: String,
     tags: Vec<String>,
 ) -> sqlx::Result<i64> {
-    // TODO: transactions
     let mut trans = pool.begin().await?;
 
     let bookmark_id = sqlx::query_scalar::<_, i64>(
@@ -218,15 +217,13 @@ async fn create_bookmark_impl(
     .fetch_one(&mut *trans)
     .await?;
 
-    trans.commit().await?;
-
     // create the tags
     let placeholders = vec!["(?)"; tags.len()].join(", ");
     let query_text = format!(r"insert or ignore into tag (name) values {placeholders}");
     let insert_query = tags
         .iter()
         .fold(sqlx::query(&query_text), |query, tag| query.bind(tag));
-    insert_query.execute(pool).await?;
+    insert_query.execute(&mut *trans).await?;
 
     // create the links
     let placeholders = vec!["?"; tags.len()].join(", ");
@@ -238,7 +235,9 @@ async fn create_bookmark_impl(
     for tag in tags {
         q = q.bind(tag);
     }
-    q.execute(pool).await?;
+    q.execute(&mut *trans).await?;
+
+    trans.commit().await?;
 
     Ok(bookmark_id)
 }
@@ -323,22 +322,20 @@ async fn modify_bookmark_impl(
     title: String,
     tags: Vec<String>,
 ) -> sqlx::Result<()> {
-    // let mut trans = pool.begin().await?;
+    let mut trans = pool.begin().await?;
 
     // Update url and title
     sqlx::query("UPDATE bookmark SET url = ?, title = ? WHERE id = ?")
         .bind(&url)
         .bind(title)
         .bind(id as i64)
-        // .execute(&mut *trans)
-        .execute(pool)
+        .execute(&mut *trans)
         .await?;
 
     // clear tags
     sqlx::query("DELETE FROM bookmark_tag WHERE bookmark_id = ?")
         .bind(id as i64)
-        // .execute(&mut *trans)
-        .execute(pool)
+        .execute(&mut *trans)
         .await?;
 
     // recreate the tags
@@ -347,8 +344,7 @@ async fn modify_bookmark_impl(
     let insert_query = tags
         .iter()
         .fold(sqlx::query(&query_text), |query, tag| query.bind(tag));
-    // insert_query.execute(&mut *trans).await?;
-    insert_query.execute(pool).await?;
+    insert_query.execute(&mut *trans).await?;
 
     // recreate the links
     let placeholders = vec!["?"; tags.len()].join(", ");
@@ -360,7 +356,9 @@ async fn modify_bookmark_impl(
     for tag in tags {
         q = q.bind(tag);
     }
-    q.execute(pool).await?;
+    q.execute(&mut *trans).await?;
+
+    trans.commit().await?;
 
     Ok(())
 }
