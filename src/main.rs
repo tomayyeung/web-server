@@ -10,7 +10,7 @@ use axum::{
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
-use sqlx::{Execute, SqlitePool};
+use sqlx::SqlitePool;
 
 // Data model
 
@@ -334,16 +334,12 @@ async fn modify_bookmark_impl(
         .execute(pool)
         .await?;
 
-    println!("updated url & title");
-
     // clear tags
     sqlx::query("DELETE FROM bookmark_tag WHERE bookmark_id = ?")
         .bind(id as i64)
         // .execute(&mut *trans)
         .execute(pool)
         .await?;
-
-    println!("cleared tags");
 
     // recreate the tags
     let placeholders = vec!["(?)"; tags.len()].join(", ");
@@ -352,11 +348,7 @@ async fn modify_bookmark_impl(
         .iter()
         .fold(sqlx::query(&query_text), |query, tag| query.bind(tag));
     // insert_query.execute(&mut *trans).await?;
-    println!("{}", insert_query.sql());
-
     insert_query.execute(pool).await?;
-
-    println!("created tags");
 
     // recreate the links
     let placeholders = vec!["?"; tags.len()].join(", ");
@@ -368,11 +360,7 @@ async fn modify_bookmark_impl(
     for tag in tags {
         q = q.bind(tag);
     }
-    println!("{}", q.sql());
     q.execute(pool).await?;
-
-    println!("created links");
-
 
     Ok(())
 }
