@@ -10,7 +10,7 @@ use axum::{
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Execute, SqlitePool};
 
 // Data model
 
@@ -323,21 +323,27 @@ async fn modify_bookmark_impl(
     title: String,
     tags: Vec<String>,
 ) -> sqlx::Result<()> {
-    let mut trans = pool.begin().await?;
+    // let mut trans = pool.begin().await?;
 
     // Update url and title
     sqlx::query("UPDATE bookmark SET url = ?, title = ? WHERE id = ?")
         .bind(&url)
         .bind(title)
         .bind(id as i64)
-        .execute(&mut *trans)
+        // .execute(&mut *trans)
+        .execute(pool)
         .await?;
 
+    println!("updated url & title");
+
     // clear tags
-    sqlx::query("DELETE FROM bookmark_tag WHERE id = ?")
-        .bind(url)
-        .execute(&mut *trans)
+    sqlx::query("DELETE FROM bookmark_tag WHERE bookmark_id = ?")
+        .bind(id as i64)
+        // .execute(&mut *trans)
+        .execute(pool)
         .await?;
+
+    println!("cleared tags");
 
     // recreate the tags
     let placeholders = vec!["(?)"; tags.len()].join(", ");
@@ -345,7 +351,12 @@ async fn modify_bookmark_impl(
     let insert_query = tags
         .iter()
         .fold(sqlx::query(&query_text), |query, tag| query.bind(tag));
-    insert_query.execute(&mut *trans).await?;
+    // insert_query.execute(&mut *trans).await?;
+    println!("{}", insert_query.sql());
+
+    insert_query.execute(pool).await?;
+
+    println!("created tags");
 
     // recreate the links
     let placeholders = vec!["?"; tags.len()].join(", ");
@@ -357,9 +368,11 @@ async fn modify_bookmark_impl(
     for tag in tags {
         q = q.bind(tag);
     }
-    q.execute(&mut *trans).await?;
+    println!("{}", q.sql());
+    q.execute(pool).await?;
 
-    trans.commit().await?;
+    println!("created links");
+
 
     Ok(())
 }
