@@ -6,7 +6,7 @@ use axum::{
     extract::{Form, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get},
+    routing::get,
 };
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
@@ -298,6 +298,75 @@ async fn delete_bookmark(State(state): State<AppState>, Path(id): Path<u64>) -> 
         )
             .into_response(),
     }
+}
+
+async fn modify_bookmark_impl(
+    pool: &SqlitePool,
+    id: u64,
+    url: String,
+    title: String,
+    tags: Vec<String>,
+) -> sqlx::Result<()> {
+    let mut trans = pool.begin().await?;
+
+    // Update url and title
+    sqlx::query("UPDATE bookmark SET url = ?, title = ? WHERE id = ?")
+        .bind(&url)
+        .bind(title)
+        .bind(id as i64)
+        .execute(&mut *trans)
+        .await?;
+
+    // clear tags
+    sqlx::query("DELETE FROM bookmark_tag WHERE id = ?")
+        .bind(url)
+        .execute(&mut *trans)
+        .await?;
+
+    // recreate the tags
+    let placeholders = vec!["(?)"; tags.len()].join(", ");
+    let query_text = format!(r"insert or ignore into tag (name) values {placeholders}");
+    let insert_query = tags
+        .iter()
+        .fold(sqlx::query(&query_text), |query, tag| query.bind(tag));
+    insert_query.execute(&mut *trans).await?;
+
+    // recreate the links
+    let placeholders = vec!["?"; tags.len()].join(", ");
+    let link_tags = format!(
+        r"INSERT INTO bookmark_tag (bookmark_id, tag_id)
+              SELECT ?, id FROM tag WHERE name IN ({placeholders})"
+    );
+    let mut q = sqlx::query(&link_tags).bind(id as i64);
+    for tag in tags {
+        q = q.bind(tag);
+    }
+    q.execute(&mut *trans).await?;
+
+    trans.commit().await?;
+
+    Ok(())
+}
+
+/// POST /modify/:id
+async fn modify_bookmark(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    Form(form): Form<CreateBookmarkForm>,
+) -> Response {
+    let tags: Vec<String> = form
+        .tags
+        .unwrap_or_default()
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let Ok(_) = modify_bookmark_impl(&state.store, id, form.url, form.title, tags).await else {
+        return database_error();
+    };
+
+    Redirect::to(&format!("/bookmarks/{id}")).into_response()
 }
 
 fn build_router(state: AppState) -> Router {
