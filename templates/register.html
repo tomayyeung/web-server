@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 50px auto;">
+    <h2>Register</h2>
+    {% if error %}
+    <div style="color: red; margin-bottom: 10px;">{{ error }}</div>
+    {% endif %}
+    <form method="post">
+        <div style="margin-bottom: 10px;">
+            <label for="username">Username:</label><br>
+            <input type="text" name="username" id="username" required>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <label for="password">Password:</label><br>
+            <input type="password" name="password" id="password" required minlength="8">
+        </div>
+        <div style="margin-bottom: 10px;">
+            <label for="password_confirm">Confirm Password:</label><br>
+            <input type="password" name="password_confirm" id="password_confirm" required minlength="8">
+        </div>
+        <button type="submit">Register</button>
+    </form>
+    <p>Already have an account? <a href="/login">Login here</a></p>
+</div>
+{% endblock %}

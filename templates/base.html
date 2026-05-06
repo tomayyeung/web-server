@@ -2,7 +2,14 @@
 <html>
 <head><meta charset="utf-8"><title>{% block title %}Bookmarks{% endblock %}</title></head>
 <body>
-  <nav><a href="/bookmarks">All bookmarks</a> | <a href="/bookmarks/new">+ New</a></nav>
+  <nav>
+    <a href="/bookmarks">All bookmarks</a> | <a href="/bookmarks/new">+ New</a>
+    {% if username %}
+    | Logged in as: <strong>{{ username }}</strong> | <form method="post" action="/logout" style="display: inline;">
+      <button type="submit" style="background: none; border: none; color: blue; text-decoration: underline; cursor: pointer;">Logout</button>
+    </form>
+    {% endif %}
+  </nav>
   <hr>
   {% block content %}{% endblock %}
 </body>

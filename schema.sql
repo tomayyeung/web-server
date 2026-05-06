@@ -1,7 +1,17 @@
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS bookmark (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    url TEXT NOT NULL UNIQUE,
-    title TEXT NOT NULL
+    user_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (user_id, url)
 );
 
 CREATE TABLE IF NOT EXISTS tag (
@@ -13,6 +23,6 @@ CREATE TABLE IF NOT EXISTS bookmark_tag (
     bookmark_id INTEGER NOT NULL,
     tag_id INTEGER NOT NULL,
     PRIMARY KEY (bookmark_id, tag_id),
-    FOREIGN KEY (bookmark_id) REFERENCES bookmark(id),
+    FOREIGN KEY (bookmark_id) REFERENCES bookmark(id) ON DELETE CASCADE,
     FOREIGN KEY (tag_id) REFERENCES tag(id)
 );

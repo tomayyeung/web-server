@@ -1,7 +1,15 @@
-INSERT OR IGNORE INTO bookmark (url, title) VALUES
-    ('https://doc.rust-lang.org/book/', 'The Rust Programming Language'),
-    ('https://www.sqlite.org/', 'SQLite Home Page'),
-    ('https://en.wikipedia.org/wiki/SQL', 'SQL - Wikipedia');
+-- Insert test users
+-- Passwords are hashed with bcrypt. For testing, use:
+-- alice: password123
+-- bob: password123
+INSERT OR IGNORE INTO users (id, username, password_hash) VALUES
+    ('550e8400-e29b-41d4-a716-446655440000', 'alice', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJiq'),
+    ('550e8400-e29b-41d4-a716-446655440001', 'bob', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJiq');
+
+INSERT OR IGNORE INTO bookmark (user_id, url, title) VALUES
+    ('550e8400-e29b-41d4-a716-446655440000', 'https://doc.rust-lang.org/book/', 'The Rust Programming Language'),
+    ('550e8400-e29b-41d4-a716-446655440000', 'https://www.sqlite.org/', 'SQLite Home Page'),
+    ('550e8400-e29b-41d4-a716-446655440001', 'https://en.wikipedia.org/wiki/SQL', 'SQL - Wikipedia');
 
 INSERT OR IGNORE INTO tag (name) VALUES
     ('rust'),
